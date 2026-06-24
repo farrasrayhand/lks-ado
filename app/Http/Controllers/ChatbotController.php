@@ -92,7 +92,7 @@ class ChatbotController extends Controller
             $result = $client->recognizeText([
                 'botId' => $botId,
                 'botAliasId' => $aliasId,
-                'localeId' => 'id_ID',
+                'localeId' => 'en_US',
                 'sessionId' => $sessionId,
                 'text' => $message,
             ]);
