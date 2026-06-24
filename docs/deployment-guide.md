@@ -224,6 +224,23 @@ cd /opt/kaltim-app
 
 ```bash
 cp docker/.env.example docker/.env
+```
+
+Generate `APP_KEY` dan `JWT_SECRET`:
+
+```bash
+# APP_KEY
+echo "base64:$(openssl rand -base64 32)"
+# Contoh output: base64:AbCdEfGhIjKlMnOpQrStUvWxYz012345678=
+
+# JWT_SECRET
+openssl rand -hex 64
+# Contoh output: a1b2c3d4e5f6... (panjang 128 karakter)
+```
+
+Salin kedua nilai di atas, lalu edit `.env`:
+
+```bash
 nano docker/.env
 ```
 
