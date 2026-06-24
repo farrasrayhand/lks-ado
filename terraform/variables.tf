@@ -98,3 +98,8 @@ variable "s3_bucket_name" {
   type        = string
   default     = "kaltim-smart-platform-uploads"
 }
+
+variable "github_repo_url" {
+  description = "GitHub repository URL to clone on EC2"
+  type        = string
+}

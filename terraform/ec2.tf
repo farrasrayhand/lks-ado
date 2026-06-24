@@ -1,3 +1,52 @@
+# IAM Role for EC2 — allows S3, Lex, and SSM access without hardcoded credentials
+resource "aws_iam_role" "app_ec2" {
+  name = "${var.project_name}-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.app_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy" "app_permissions" {
+  name = "${var.project_name}-app-policy"
+  role = aws_iam_role.app_ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"]
+        Resource = [
+          aws_s3_bucket.uploads.arn,
+          "${aws_s3_bucket.uploads.arn}/*"
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lex:RecognizeText", "lex:RecognizeUtterance", "lex:DeleteSession", "lex:GetSession"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "app" {
+  name = "${var.project_name}-ec2-profile"
+  role = aws_iam_role.app_ec2.name
+}
+
+# Application Load Balancer
 resource "aws_lb" "app" {
   name               = "${var.project_name}-alb"
   internal           = false
@@ -39,40 +88,74 @@ resource "aws_lb_listener" "app" {
   }
 }
 
+# Launch Template
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-lt-"
-  image_id      = "ami-0c802847a7dd848c0" # Amazon Linux 2023 (region specific)
+  image_id      = "ami-0c802847a7dd848c0" # Amazon Linux 2023 ap-southeast-1
   instance_type = var.instance_type
   key_name      = var.key_name
 
   vpc_security_group_ids = [aws_security_group.app.id]
 
+  iam_instance_profile {
+    name = aws_iam_instance_profile.app.name
+  }
+
+  # Allow Docker containers inside EC2 to reach IMDS (IAM role credentials)
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 2
+  }
+
   user_data = base64encode(<<-EOF
     #!/bin/bash
+    set -e
+
+    # Install Docker and Git
     yum update -y
-    yum install -y docker
+    yum install -y docker git
+
+    # Install Docker Compose v2 plugin
+    mkdir -p /usr/local/lib/docker/cli-plugins
+    curl -SL "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64" \
+        -o /usr/local/lib/docker/cli-plugins/docker-compose
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+    # Start Docker
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ec2-user
 
-    mkdir -p /opt/kaltim-app
+    # Clone application repository
+    git clone ${var.github_repo_url} /opt/kaltim-app
     cd /opt/kaltim-app
 
-    cat > .env <<EOT
+    # Write docker .env (uses RDS + ElastiCache + S3 + Lex)
+    cat > docker/.env << 'ENVEOF'
     APP_KEY=${var.app_key}
     JWT_SECRET=${var.jwt_secret}
     DB_DATABASE=${var.db_name}
     DB_USERNAME=${var.db_username}
     DB_PASSWORD=${var.db_password}
-    DB_HOST=${aws_db_instance.main.endpoint}
+    DB_ROOT_PASSWORD=${var.db_password}
+    DB_HOST=${aws_db_instance.main.address}
+    DB_PORT=3306
     REDIS_HOST=${aws_elasticache_cluster.main.cache_nodes[0].address}
-    AWS_ACCESS_KEY_ID=
-    AWS_SECRET_ACCESS_KEY=
+    REDIS_PORT=6379
+    APP_PORT=80
+    APP_URL=http://${aws_lb.app.dns_name}
     AWS_DEFAULT_REGION=${var.aws_region}
     AWS_BUCKET=${aws_s3_bucket.uploads.bucket}
-    EOT
+    AWS_LEX_BOT_ID=${aws_lexv2models_bot.kaltim.id}
+    AWS_LEX_BOT_ALIAS_ID=${aws_lexv2models_bot_alias.prod.bot_alias_id}
+    CACHE_STORE=redis
+    SESSION_DRIVER=redis
+    FILESYSTEM_DISK=s3
+    ENVEOF
 
-    docker compose -f docker/docker-compose.yml up -d
+    # Start application
+    docker compose -f docker/docker-compose.yml up -d --build
   EOF
   )
 
@@ -82,12 +165,13 @@ resource "aws_launch_template" "app" {
   }
 }
 
+# Auto Scaling Group
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project_name}-asg"
   vpc_zone_identifier = aws_subnet.app_private[*].id
-  min_size            = 2
-  max_size            = 4
-  desired_capacity    = 2
+  min_size            = 1
+  max_size            = 2
+  desired_capacity    = 1
 
   launch_template {
     id      = aws_launch_template.app.id
