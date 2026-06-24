@@ -64,54 +64,8 @@ variable "db_password" {
   sensitive   = true
 }
 
-variable "instance_type" {
-  description = "EC2 instance type"
-  type        = string
-  default     = "t3.medium"
-}
-
-variable "key_name" {
-  description = "SSH key pair name"
-  type        = string
-}
-
-variable "app_port" {
-  description = "Application port"
-  type        = number
-  default     = 80
-}
-
-variable "app_key" {
-  description = "Laravel APP_KEY"
-  type        = string
-  sensitive   = true
-}
-
-variable "jwt_secret" {
-  description = "JWT secret key"
-  type        = string
-  sensitive   = true
-}
-
 variable "s3_bucket_name" {
   description = "S3 bucket name for file uploads"
   type        = string
   default     = "kaltim-smart-platform-uploads"
-}
-
-variable "github_repo_url" {
-  description = "GitHub repository URL to clone on EC2"
-  type        = string
-}
-
-variable "app_ami_id" {
-  description = "AMI ID for EC2 instances — gunakan AMI default saat pertama deploy, ganti dengan custom AMI setelah setup selesai"
-  type        = string
-  default     = "ami-0c802847a7dd848c0"
-}
-
-variable "lex_bot_alias_id" {
-  description = "Lex Bot Alias ID — isi setelah membuat alias di AWS Console (Section 5)"
-  type        = string
-  default     = ""
 }

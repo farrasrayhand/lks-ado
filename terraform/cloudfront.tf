@@ -49,7 +49,3 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 }
 
-output "cloudfront_domain" {
-  description = "CloudFront URL untuk file uploads"
-  value       = "https://${aws_cloudfront_distribution.cdn.domain_name}"
-}
