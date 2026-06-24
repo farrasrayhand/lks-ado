@@ -103,9 +103,14 @@ app_key         = "base64:..."    ← ambil dari docker/.env (APP_KEY)
 jwt_secret      = "..."           ← ambil dari docker/.env (JWT_SECRET)
 s3_bucket_name  = "kaltim-uploads-[kode-peserta]-2026"
 github_repo_url = "https://github.com/[username]/lks-kaltim-2026-[kode-peserta].git"
+
+# Diisi SETELAH deploy selesai (lihat Section 5 dan 6)
+lex_bot_alias_id = ""
+app_ami_id       = "ami-0c802847a7dd848c0"
 ```
 
 > ⚠️ Nilai `app_key` dan `jwt_secret` sudah ada di file `docker/.env` — tinggal copy.
+> Tidak perlu isi `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — EC2 pakai IAM Role otomatis.
 
 ### Langkah 2 — Jalankan Terraform
 
@@ -129,6 +134,7 @@ Catat output ini — akan dipakai di langkah selanjutnya:
 - `alb_dns_name` — URL aplikasi kamu (akses lewat browser)
 - `rds_endpoint` — endpoint database
 - `s3_bucket_name` — nama bucket S3
+- `cloudfront_domain` — URL CloudFront untuk akses file upload
 - `lex_bot_id` dan `lex_bot_version` — untuk setup Lex di langkah 5
 
 ---
@@ -179,7 +185,7 @@ Harus tampil: **All Systems Operational** dengan status database, cache, dan sto
 
 1. Buka **AWS Console → Amazon Lex → Bots**
 2. Klik bot **kaltim-smart-platform-chatbot**
-3. Pilih language **Indonesian (id_ID)**
+3. Pilih language **English (en_US)** — bot menggunakan locale ini karena `id_ID` tidak mendukung custom intent
 4. Klik tombol **Build** → tunggu ~2 menit hingga status **Built**
 
 ### Langkah 2 — Buat Versi dan Alias
@@ -240,42 +246,16 @@ Sebelum buat AMI, verifikasi semua sudah berjalan:
 6. Tunggu status AMI menjadi **Available** (~5 menit) di **EC2 → AMIs**
 7. **Catat AMI ID** (format: `ami-xxxxxxxxxxxxxxxxx`)
 
-### Langkah 3 — Update Terraform dengan AMI Baru
+### Langkah 3 — Update `terraform.tfvars` dengan AMI Baru
 
-Edit `terraform/terraform.tfvars`, tambahkan:
+Edit `terraform/terraform.tfvars`, update dua baris ini:
 
 ```
 app_ami_id       = "ami-xxxxxxxxxxxxxxxxx"   ← ganti dengan AMI ID dari langkah 2
 lex_bot_alias_id = "XXXXXXXXXX"              ← ganti dengan Alias ID dari Section 5
 ```
 
-Edit `terraform/variables.tf`, tambahkan dua variable:
-
-```hcl
-variable "app_ami_id" {
-  description = "AMI ID for EC2 instances (created after initial setup)"
-  type        = string
-  default     = "ami-0c802847a7dd848c0"  # Amazon Linux 2023 default
-}
-
-variable "lex_bot_alias_id" {
-  description = "Lex Bot Alias ID (created manually after terraform apply)"
-  type        = string
-  default     = ""
-}
-```
-
-Edit `terraform/ec2.tf`, ganti baris `image_id`:
-
-```hcl
-image_id = var.app_ami_id
-```
-
-Dan update baris Lex alias di user_data:
-
-```hcl
-AWS_LEX_BOT_ALIAS_ID=${var.lex_bot_alias_id}
-```
+> Tidak perlu edit file lain — `variables.tf` dan `ec2.tf` sudah dikonfigurasi untuk membaca nilai ini otomatis.
 
 ### Langkah 4 — Apply Terraform
 
@@ -310,6 +290,19 @@ Buka `http://<alb-dns-name>`:
 - Warga: `budi@email.com` / `password`
 - Chatbot: klik bubble 💬 di kanan bawah, ketik "cara buat KTP"
 
+### Test Upload & CloudFront
+
+1. Login sebagai warga → buat laporan → upload foto
+2. Cek bahwa URL foto di response mengandung `cloudfront.net` (bukan `s3.amazonaws.com`)
+3. Buka URL foto tersebut di browser — harus tampil gambar (bukan Access Denied)
+
+Contoh URL yang benar:
+```
+https://xxxxxx.cloudfront.net/storage/uploads/reports/namafile.jpg ✅
+```
+
+Kalau masih `http://<alb-dns-name>/storage/...` berarti FILESYSTEM_DISK masih `local` — cek `.env` di EC2.
+
 ### Test API via curl
 
 ```bash
@@ -332,10 +325,10 @@ curl http://<alb-dns-name>/api/dashboard/stats \
 
 ### Lihat Log Aplikasi
 
+Akses EC2 via Session Manager (Section 4, Langkah 2), lalu:
+
 ```bash
-# Di dalam EC2 instance
-cd /opt/kaltim-app/docker
-docker compose logs app -f
+sudo docker compose -f /opt/kaltim-app/docker/docker-compose.yml logs app -f
 ```
 
 ### CloudWatch di AWS Console
@@ -355,28 +348,32 @@ Metrik yang perlu dipantau: CPU Utilization, Database Connections, Request Count
 ```
                       INTERNET
                           │
-                          ▼
-          ┌───────────────────────────────┐
-          │    Application Load Balancer  │  Public Subnets (AZ1 + AZ2)
-          │    (port 80/443)              │
-          └───────────────┬───────────────┘
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-    ┌──────────────────┐  ┌──────────────────┐
-    │  EC2 App (AZ1)   │  │  EC2 App (AZ2)   │  Private App Subnets
-    │  Docker +        │  │  Docker +        │
-    │  PHP-FPM + Nginx │  │  PHP-FPM + Nginx │
-    └───┬──────┬───────┘  └───┬──────┬───────┘
-        │      │              │      │
-        ▼      │              │      ▼
-  ┌─────────┐  │              │  ┌─────────┐
-  │   RDS   │  └──────┬───────┘  │   S3    │
-  │  MySQL  │         ▼          │ Uploads │
-  │ (AZ1)   │  ┌──────────────┐  └─────────┘
-  └─────────┘  │ ElastiCache  │
-               │   Redis      │
-               └──────────────┘
+              ┌───────────┴────────────┐
+              ▼                        ▼
+  ┌─────────────────────┐   ┌──────────────────────┐
+  │  Application Load   │   │   CloudFront CDN     │
+  │  Balancer (ALB)     │   │   (file uploads)     │
+  │  Public Subnets     │   └──────────┬───────────┘
+  └──────────┬──────────┘              │
+             │                         ▼
+     ┌───────┴───────┐          ┌─────────────┐
+     ▼               ▼          │  S3 Uploads │  (private, OAC)
+  ┌──────────┐  ┌──────────┐   └─────────────┘
+  │ EC2 (AZ1)│  │ EC2 (AZ2)│   Private App Subnets
+  │ Docker + │  │ Docker + │
+  │ PHP+Nginx│  │ PHP+Nginx│
+  └────┬─────┘  └────┬─────┘
+       │              │
+       ▼              ▼
+  ┌─────────┐   ┌──────────────┐
+  │   RDS   │   │ ElastiCache  │   Private DB Subnets
+  │  MySQL  │   │   Redis      │
+  └─────────┘   └──────────────┘
+
+  ┌──────────────┐
+  │ Amazon Lex   │  (managed service, di luar VPC)
+  │ Chatbot      │
+  └──────────────┘
 
   VPC 10.0.0.0/16
   ├── Public Subnets:  10.0.1.0/24, 10.0.2.0/24   (ALB)
@@ -388,11 +385,12 @@ Metrik yang perlu dipantau: CPU Utilization, Database Connections, Request Count
 |---|---|---|
 | VPC | 10.0.0.0/16 | Virtual Private Cloud |
 | ALB | 1 | Application Load Balancer (public) |
-| EC2 ASG | 2–4 × t3.medium | Auto Scaling, private subnet |
+| EC2 ASG | 1–2 × t3.medium | Auto Scaling, private subnet |
 | RDS | db.t3.micro, MySQL 8.0 | Private subnet |
 | ElastiCache | cache.t3.micro, Redis 7 | Private subnet |
-| S3 | 1 bucket | Upload file, blocked public access |
-| Amazon Lex | 1 bot | Chatbot Bahasa Indonesia |
+| S3 | 1 bucket | Upload file, private (no public access) |
+| CloudFront | 1 distribution | CDN untuk file S3, akses via OAC |
+| Amazon Lex | 1 bot, en_US locale | Chatbot AI (respons bahasa Indonesia) |
 | NAT Gateway | 1 | Internet untuk instance private |
 
 ---
@@ -566,6 +564,14 @@ GET {{base_url}}/api/auth/profile
 Buka di browser: https://<s3-bucket>.s3.ap-southeast-1.amazonaws.com/
 ✅ Harus muncul "Access Denied"
 ❌ Jangan sampai muncul list file
+```
+
+**Akses via CloudFront (harus bisa):**
+```
+Buka URL file dari response upload, contoh:
+https://xxxxxx.cloudfront.net/storage/uploads/reports/namafile.jpg
+✅ File tampil di browser (gambar/PDF)
+✅ URL mengandung "cloudfront.net" bukan "s3.amazonaws.com"
 ```
 
 ---
