@@ -39,24 +39,20 @@ resource "aws_iam_role_policy" "lex_bot" {
   })
 }
 
-# Lex Bot Locale - Bahasa Indonesia
+# Lex Bot Locale - English (en_US) karena id_ID tidak mendukung custom intent di Lex V2
+# Bot tetap bisa membalas dalam bahasa Indonesia
 resource "aws_lexv2models_bot_locale" "id" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   n_lu_intent_confidence_threshold = 0.4
-
-  voice_settings {
-    voice_id = "Ardi"
-    engine   = "neural"
-  }
 }
 
 # Intent - Greeting
 resource "aws_lexv2models_intent" "greeting" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   name        = "GreetingIntent"
 
   sample_utterance {
@@ -96,7 +92,7 @@ resource "aws_lexv2models_intent" "greeting" {
 resource "aws_lexv2models_intent" "ktp" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   name        = "KTPIntent"
 
   sample_utterance { utterance = "cara buat KTP" }
@@ -123,7 +119,7 @@ resource "aws_lexv2models_intent" "ktp" {
 resource "aws_lexv2models_intent" "kk" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   name        = "KKIntent"
 
   sample_utterance { utterance = "cara buat KK" }
@@ -149,7 +145,7 @@ resource "aws_lexv2models_intent" "kk" {
 resource "aws_lexv2models_intent" "lapor" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   name        = "LaporIntent"
 
   sample_utterance { utterance = "lapor jalan rusak" }
@@ -176,7 +172,7 @@ resource "aws_lexv2models_intent" "lapor" {
 resource "aws_lexv2models_intent" "fallback" {
   bot_id      = aws_lexv2models_bot.kaltim.id
   bot_version = "DRAFT"
-  locale_id   = "id_ID"
+  locale_id   = "en_US"
   name        = "FallbackIntent"
   parent_intent_signature = "AMAZON.FallbackIntent"
 
@@ -199,7 +195,7 @@ resource "aws_lexv2models_intent" "fallback" {
 resource "aws_lexv2models_bot_version" "v1" {
   bot_id = aws_lexv2models_bot.kaltim.id
   locale_specification = {
-    id_ID = {
+    en_US = {
       source_bot_version = "DRAFT"
     }
   }
