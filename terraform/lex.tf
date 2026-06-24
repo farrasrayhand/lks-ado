@@ -173,8 +173,14 @@ resource "aws_lexv2models_intent" "lapor" {
 }
 
 
-# Lex Bot Version
+# Lex Bot Version — dibuat setelah semua intent selesai
 resource "aws_lexv2models_bot_version" "v1" {
+  depends_on = [
+    aws_lexv2models_intent.greeting,
+    aws_lexv2models_intent.ktp,
+    aws_lexv2models_intent.kk,
+    aws_lexv2models_intent.lapor,
+  ]
   bot_id = aws_lexv2models_bot.kaltim.id
   locale_specification = {
     en_US = {
