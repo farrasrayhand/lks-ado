@@ -103,3 +103,15 @@ variable "github_repo_url" {
   description = "GitHub repository URL to clone on EC2"
   type        = string
 }
+
+variable "app_ami_id" {
+  description = "AMI ID for EC2 instances — gunakan AMI default saat pertama deploy, ganti dengan custom AMI setelah setup selesai"
+  type        = string
+  default     = "ami-0c802847a7dd848c0"
+}
+
+variable "lex_bot_alias_id" {
+  description = "Lex Bot Alias ID — isi setelah membuat alias di AWS Console (Section 5)"
+  type        = string
+  default     = ""
+}

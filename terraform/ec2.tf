@@ -91,7 +91,7 @@ resource "aws_lb_listener" "app" {
 # Launch Template
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-lt-"
-  image_id      = "ami-0c802847a7dd848c0" # Amazon Linux 2023 ap-southeast-1
+  image_id      = var.app_ami_id
   instance_type = var.instance_type
   key_name      = var.key_name
 
@@ -148,7 +148,7 @@ resource "aws_launch_template" "app" {
     AWS_DEFAULT_REGION=${var.aws_region}
     AWS_BUCKET=${aws_s3_bucket.uploads.bucket}
     AWS_LEX_BOT_ID=${aws_lexv2models_bot.kaltim.id}
-    AWS_LEX_BOT_ALIAS_ID=
+    AWS_LEX_BOT_ALIAS_ID=${var.lex_bot_alias_id}
     CACHE_STORE=redis
     SESSION_DRIVER=redis
     FILESYSTEM_DISK=s3

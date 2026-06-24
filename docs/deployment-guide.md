@@ -9,13 +9,14 @@
 1. [Tools yang Dibutuhkan](#1-tools-yang-dibutuhkan)
 2. [Setup AWS Account](#2-setup-aws-account)
 3. [Deploy dengan Terraform](#3-deploy-dengan-terraform)
-4. [Setup Aplikasi di EC2](#4-setup-aplikasi-di-ec2)
+4. [Verifikasi EC2 via AWS Console](#4-verifikasi-ec2-via-aws-console)
 5. [Setup Amazon Lex (Chatbot)](#5-setup-amazon-lex-chatbot)
-6. [Cek & Test Aplikasi](#6-cek--test-aplikasi)
-7. [Monitoring](#7-monitoring)
-8. [Arsitektur AWS](#8-arsitektur-aws)
-9. [Pengujian Mandiri dengan Postman](#9-pengujian-mandiri-dengan-postman)
-10. [Checklist Pengumpulan](#10-checklist-pengumpulan)
+6. [Buat AMI & Update Launch Template](#6-buat-ami--update-launch-template)
+7. [Cek & Test Aplikasi](#7-cek--test-aplikasi)
+8. [Monitoring](#8-monitoring)
+9. [Arsitektur AWS](#9-arsitektur-aws)
+10. [Pengujian Mandiri dengan Postman](#10-pengujian-mandiri-dengan-postman)
+11. [Checklist Pengumpulan](#11-checklist-pengumpulan)
 
 ---
 
@@ -212,7 +213,84 @@ Selesai — chatbot sudah aktif menggunakan Amazon Lex.
 
 ---
 
-## 6. Cek & Test Aplikasi
+## 6. Buat AMI & Update Launch Template
+
+> Langkah ini **wajib** sebelum production. Tanpanya, kalau EC2 instance terhapus atau diganti oleh Auto Scaling, semua konfigurasi (termasuk Lex alias ID) hilang dan perlu setup ulang dari awal.
+>
+> Dengan AMI, instance baru boot dalam hitungan menit sudah langsung siap — tidak perlu git clone, docker build, atau update .env lagi.
+
+### Langkah 1 — Pastikan App Sudah Sempurna
+
+Sebelum buat AMI, verifikasi semua sudah berjalan:
+- [ ] `http://<alb-dns-name>/health` → All Systems Operational
+- [ ] Login admin dan warga berhasil
+- [ ] Chatbot Lex aktif (ketik "cara buat KTP" → dapat respons dari Lex, bukan fallback)
+- [ ] Upload file berhasil masuk ke S3
+
+### Langkah 2 — Buat AMI (AWS Console)
+
+1. Buka **AWS Console → EC2 → Instances**
+2. Pilih instance `kaltim-smart-platform-instance`
+3. Klik **Actions → Image and templates → Create image**
+4. Isi:
+   - **Image name:** `kaltim-smart-platform-ami`
+   - **Description:** `Kaltim Smart Platform - configured with Lex, S3, RDS`
+   - **No reboot:** centang (agar instance tidak restart)
+5. Klik **Create image**
+6. Tunggu status AMI menjadi **Available** (~5 menit) di **EC2 → AMIs**
+7. **Catat AMI ID** (format: `ami-xxxxxxxxxxxxxxxxx`)
+
+### Langkah 3 — Update Terraform dengan AMI Baru
+
+Edit `terraform/terraform.tfvars`, tambahkan:
+
+```
+app_ami_id       = "ami-xxxxxxxxxxxxxxxxx"   ← ganti dengan AMI ID dari langkah 2
+lex_bot_alias_id = "XXXXXXXXXX"              ← ganti dengan Alias ID dari Section 5
+```
+
+Edit `terraform/variables.tf`, tambahkan dua variable:
+
+```hcl
+variable "app_ami_id" {
+  description = "AMI ID for EC2 instances (created after initial setup)"
+  type        = string
+  default     = "ami-0c802847a7dd848c0"  # Amazon Linux 2023 default
+}
+
+variable "lex_bot_alias_id" {
+  description = "Lex Bot Alias ID (created manually after terraform apply)"
+  type        = string
+  default     = ""
+}
+```
+
+Edit `terraform/ec2.tf`, ganti baris `image_id`:
+
+```hcl
+image_id = var.app_ami_id
+```
+
+Dan update baris Lex alias di user_data:
+
+```hcl
+AWS_LEX_BOT_ALIAS_ID=${var.lex_bot_alias_id}
+```
+
+### Langkah 4 — Apply Terraform
+
+```bash
+cd terraform
+terraform apply
+```
+
+Ketik `yes`. Terraform akan update launch template dengan AMI baru. Instance yang berjalan tidak terpengaruh — hanya instance baru ke depannya yang akan boot dari AMI ini.
+
+> Sekarang kalau Auto Scaling ganti instance, instance baru langsung siap dalam ~2 menit tanpa setup manual.
+
+---
+
+## 7. Cek & Test Aplikasi
 
 ### Health Check
 
@@ -250,7 +328,7 @@ curl http://<alb-dns-name>/api/dashboard/stats \
 
 ---
 
-## 7. Monitoring
+## 8. Monitoring
 
 ### Lihat Log Aplikasi
 
@@ -270,7 +348,7 @@ Metrik yang perlu dipantau: CPU Utilization, Database Connections, Request Count
 
 ---
 
-## 8. Arsitektur AWS
+## 9. Arsitektur AWS
 
 ![Architecture](architecture-diagram.png)
 
@@ -319,7 +397,7 @@ Metrik yang perlu dipantau: CPU Utilization, Database Connections, Request Count
 
 ---
 
-## 9. Pengujian Mandiri dengan Postman
+## 10. Pengujian Mandiri dengan Postman
 
 ### Setup Postman
 
@@ -552,7 +630,7 @@ GET {{base_url}}/api/reports?per_page=2&page=1
 
 ---
 
-## 10. Checklist Pengumpulan
+## 11. Checklist Pengumpulan
 
 > Deadline: **pukul 17.00 WITA**
 
