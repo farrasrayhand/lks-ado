@@ -68,7 +68,7 @@ resource "aws_lb_target_group" "app" {
   target_type = "instance"
 
   health_check {
-    path                = "/up"
+    path                = "/health"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
